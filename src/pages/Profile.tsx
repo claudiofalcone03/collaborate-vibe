@@ -16,6 +16,14 @@ const Profile = () => {
           <h1 className="text-2xl font-bold text-foreground">{currentUser.name}</h1>
           <p className="text-sm text-primary">{currentUser.role}</p>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{currentUser.bio}</p>
+          <div className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start">
+            {currentUser.creatorTypes.includes("project") && (
+              <Badge variant="secondary" className="bg-primary/10 text-primary">Project Builder</Badge>
+            )}
+            {currentUser.creatorTypes.includes("music") && (
+              <Badge variant="secondary" className="bg-primary/10 text-primary">Music Creator</Badge>
+            )}
+          </div>
         </div>
       </div>
 
