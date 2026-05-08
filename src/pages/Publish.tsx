@@ -1,16 +1,27 @@
 import { useState } from "react";
-import { Lightbulb, Music, ArrowLeft, Send, X, Upload } from "lucide-react";
+import { Lightbulb, Music, ArrowLeft, Send, X, Upload, Image as ImageIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { ALL_SKILLS, GENRES, currentUser, type ProjectContent, type MusicContent } from "@/data/mockData";
-import { addContent } from "@/data/contentStore";
+import { ALL_SKILLS, GENRES } from "@/data/mockData";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  projectContentSchema,
+  musicContentSchema,
+  AUDIO_MIMES,
+  IMAGE_MIMES,
+  MAX_AUDIO_SIZE,
+  MAX_IMAGE_SIZE,
+} from "@/lib/validation";
 
 type ContentChoice = null | "project" | "music";
 const MODELS = ["Equity", "Paid", "Volunteer"] as const;
+type Stage = "Idea" | "MVP" | "Growth" | "Scaling";
 
 const Publish = () => {
   const [choice, setChoice] = useState<ContentChoice>(null);
@@ -29,7 +40,7 @@ const Publish = () => {
               <Lightbulb className="h-6 w-6" />
             </div>
             <h3 className="text-lg font-semibold text-foreground">Project / Startup Idea</h3>
-            <p className="text-sm text-muted-foreground">Describe your vision and find collaborators to build it.</p>
+            <p className="text-sm text-muted-foreground">Describe your vision and find collaborators.</p>
           </button>
           <button
             onClick={() => setChoice("music")}
@@ -58,39 +69,52 @@ const Publish = () => {
 
 const ProjectForm = () => {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const qc = useQueryClient();
   const [name, setName] = useState("");
   const [vision, setVision] = useState("");
   const [objectives, setObjectives] = useState("");
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [model, setModel] = useState<typeof MODELS[number]>("Equity");
-  const [stage, setStage] = useState<ProjectContent["stage"]>("Idea");
+  const [stage, setStage] = useState<Stage>("Idea");
   const [showSkillPicker, setShowSkillPicker] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const toggleSkill = (s: string) =>
     setSelectedSkills((p) => (p.includes(s) ? p.filter((x) => x !== s) : [...p, s]));
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !vision) {
-      toast({ title: "Missing fields", description: "Project name and vision are required.", variant: "destructive" });
-      return;
-    }
-    const content: ProjectContent = {
-      id: `up-${Date.now()}`,
-      contentType: "project",
+    if (!user) return;
+    const parsed = projectContentSchema.safeParse({
       title: name,
-      description: objectives || vision,
+      description: objectives,
       vision,
       skills: selectedSkills,
       stage,
       model,
-      creator: currentUser.name,
-      creatorAvatar: currentUser.avatar,
-      applicants: 0,
-      createdAt: new Date().toISOString(),
-      likes: 0,
-    };
-    addContent(content);
+    });
+    if (!parsed.success) {
+      toast({ title: "Invalid input", description: parsed.error.issues[0].message, variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    const { error } = await supabase.from("contents").insert({
+      owner_id: user.id,
+      content_type: "project",
+      title: parsed.data.title,
+      description: parsed.data.description || parsed.data.vision,
+      vision: parsed.data.vision,
+      skills: parsed.data.skills ?? [],
+      stage: parsed.data.stage,
+      model: parsed.data.model,
+    });
+    setBusy(false);
+    if (error) {
+      toast({ title: "Could not publish", description: error.message, variant: "destructive" });
+      return;
+    }
+    qc.invalidateQueries({ queryKey: ["contents"] });
     toast({ title: "Idea published! 🚀", description: `"${name}" is now live on the feed.` });
     setName(""); setVision(""); setObjectives(""); setSelectedSkills([]); setModel("Equity"); setStage("Idea");
   };
@@ -102,15 +126,15 @@ const ProjectForm = () => {
       <form onSubmit={submit} className="space-y-6">
         <div>
           <Label htmlFor="name">Project Name</Label>
-          <Input id="name" placeholder="e.g. EcoTrack" className="mt-1.5 bg-secondary border-border" value={name} onChange={(e) => setName(e.target.value)} />
+          <Input id="name" placeholder="e.g. EcoTrack" className="mt-1.5 border-border bg-secondary" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <div>
           <Label htmlFor="vision">Vision</Label>
-          <Textarea id="vision" placeholder="Describe the big picture..." className="mt-1.5 min-h-[120px] bg-secondary border-border" value={vision} onChange={(e) => setVision(e.target.value)} />
+          <Textarea id="vision" placeholder="Describe the big picture..." className="mt-1.5 min-h-[120px] border-border bg-secondary" value={vision} onChange={(e) => setVision(e.target.value)} />
         </div>
         <div>
           <Label htmlFor="obj">Objectives</Label>
-          <Textarea id="obj" placeholder="Key milestones and goals..." className="mt-1.5 bg-secondary border-border" value={objectives} onChange={(e) => setObjectives(e.target.value)} />
+          <Textarea id="obj" placeholder="Key milestones and goals..." className="mt-1.5 border-border bg-secondary" value={objectives} onChange={(e) => setObjectives(e.target.value)} />
         </div>
         <div>
           <Label>Required Skills</Label>
@@ -150,8 +174,8 @@ const ProjectForm = () => {
             ))}
           </div>
         </div>
-        <Button type="submit" size="lg" className="w-full gap-2 glow">
-          <Send className="h-4 w-4" /> Publish Idea
+        <Button type="submit" size="lg" className="glow w-full gap-2" disabled={busy}>
+          <Send className="h-4 w-4" /> {busy ? "Publishing..." : "Publish Idea"}
         </Button>
       </form>
     </>
@@ -160,51 +184,100 @@ const ProjectForm = () => {
 
 const MusicForm = () => {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const qc = useQueryClient();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [genre, setGenre] = useState<string>("Lo-fi");
-  const [creator, setCreator] = useState(currentUser.name);
-  const [audioUrl, setAudioUrl] = useState<string>("");
-  const [fileName, setFileName] = useState<string>("");
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [audioPreview, setAudioPreview] = useState<string>("");
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState<string>("");
+  const [busy, setBusy] = useState(false);
 
-  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onAudio = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    if (!/audio\/(mpeg|wav|x-wav|mp3)/.test(f.type) && !/\.(mp3|wav)$/i.test(f.name)) {
+    if (!AUDIO_MIMES.includes(f.type) && !/\.(mp3|wav)$/i.test(f.name)) {
       toast({ title: "Unsupported file", description: "Please upload an MP3 or WAV file.", variant: "destructive" });
       return;
     }
-    if (f.size > 20 * 1024 * 1024) {
+    if (f.size > MAX_AUDIO_SIZE) {
       toast({ title: "File too large", description: "Maximum size is 20MB.", variant: "destructive" });
       return;
     }
-    setAudioUrl(URL.createObjectURL(f));
-    setFileName(f.name);
+    setAudioFile(f);
+    setAudioPreview(URL.createObjectURL(f));
   };
 
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title || !description || !audioUrl) {
-      toast({ title: "Missing fields", description: "Title, description, and audio file are required.", variant: "destructive" });
+  const onCover = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (!IMAGE_MIMES.includes(f.type)) {
+      toast({ title: "Unsupported image", description: "Use PNG, JPG, or WEBP.", variant: "destructive" });
       return;
     }
-    const gradients = ["from-fuchsia-500 to-indigo-600", "from-amber-400 to-rose-500", "from-cyan-400 to-blue-700", "from-pink-500 to-purple-700"];
-    const content: MusicContent = {
-      id: `um-${Date.now()}`,
-      contentType: "music",
-      title,
-      description,
-      genre,
-      creator: creator || currentUser.name,
-      creatorAvatar: (creator || currentUser.name).slice(0, 2).toUpperCase(),
-      audioUrl,
-      coverGradient: gradients[Math.floor(Math.random() * gradients.length)],
-      createdAt: new Date().toISOString(),
-      likes: 0,
-    };
-    addContent(content);
-    toast({ title: "Track published! 🎵", description: `"${title}" is now live on the feed.` });
-    setTitle(""); setDescription(""); setGenre("Lo-fi"); setAudioUrl(""); setFileName("");
+    if (f.size > MAX_IMAGE_SIZE) {
+      toast({ title: "Image too large", description: "Maximum size is 5MB.", variant: "destructive" });
+      return;
+    }
+    setCoverFile(f);
+    setCoverPreview(URL.createObjectURL(f));
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    const parsed = musicContentSchema.safeParse({ title, description, genre });
+    if (!parsed.success) {
+      toast({ title: "Invalid input", description: parsed.error.issues[0].message, variant: "destructive" });
+      return;
+    }
+    if (!audioFile) {
+      toast({ title: "Audio required", description: "Please attach an MP3 or WAV file.", variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    try {
+      const audioPath = `${user.id}/${Date.now()}-${audioFile.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      const audioUp = await supabase.storage.from("audio").upload(audioPath, audioFile, {
+        contentType: audioFile.type || "audio/mpeg",
+        cacheControl: "3600",
+      });
+      if (audioUp.error) throw audioUp.error;
+      const { data: audioPublic } = supabase.storage.from("audio").getPublicUrl(audioPath);
+
+      let imageUrl: string | null = null;
+      if (coverFile) {
+        const coverPath = `${user.id}/${Date.now()}-${coverFile.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+        const coverUp = await supabase.storage.from("covers").upload(coverPath, coverFile, {
+          contentType: coverFile.type,
+          cacheControl: "3600",
+        });
+        if (coverUp.error) throw coverUp.error;
+        imageUrl = supabase.storage.from("covers").getPublicUrl(coverPath).data.publicUrl;
+      }
+
+      const { error } = await supabase.from("contents").insert({
+        owner_id: user.id,
+        content_type: "music",
+        title: parsed.data.title,
+        description: parsed.data.description,
+        genre: parsed.data.genre,
+        audio_url: audioPublic.publicUrl,
+        image_url: imageUrl,
+      });
+      if (error) throw error;
+
+      qc.invalidateQueries({ queryKey: ["contents"] });
+      toast({ title: "Track published! 🎵", description: `"${title}" is now live on the feed.` });
+      setTitle(""); setDescription(""); setGenre("Lo-fi"); setAudioFile(null); setAudioPreview(""); setCoverFile(null); setCoverPreview("");
+    } catch (err) {
+      const e = err as Error;
+      toast({ title: "Upload failed", description: e.message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -214,15 +287,11 @@ const MusicForm = () => {
       <form onSubmit={submit} className="space-y-6">
         <div>
           <Label htmlFor="m-title">Title</Label>
-          <Input id="m-title" placeholder="e.g. Midnight Circuits" className="mt-1.5 bg-secondary border-border" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <Input id="m-title" placeholder="e.g. Midnight Circuits" className="mt-1.5 border-border bg-secondary" value={title} onChange={(e) => setTitle(e.target.value)} />
         </div>
         <div>
           <Label htmlFor="m-desc">Description</Label>
-          <Textarea id="m-desc" placeholder="What's the vibe?" className="mt-1.5 bg-secondary border-border" value={description} onChange={(e) => setDescription(e.target.value)} />
-        </div>
-        <div>
-          <Label htmlFor="m-creator">Creator name</Label>
-          <Input id="m-creator" className="mt-1.5 bg-secondary border-border" value={creator} onChange={(e) => setCreator(e.target.value)} />
+          <Textarea id="m-desc" placeholder="What's the vibe?" className="mt-1.5 border-border bg-secondary" value={description} onChange={(e) => setDescription(e.target.value)} />
         </div>
         <div>
           <Label>Genre</Label>
@@ -236,13 +305,22 @@ const MusicForm = () => {
           <Label htmlFor="m-file">Audio file (MP3 / WAV, ≤20MB)</Label>
           <label htmlFor="m-file" className="mt-1.5 flex cursor-pointer items-center gap-3 rounded-lg border border-dashed border-border bg-secondary px-4 py-6 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary">
             <Upload className="h-5 w-5" />
-            <span>{fileName || "Click to choose an audio file"}</span>
+            <span>{audioFile?.name || "Click to choose an audio file"}</span>
           </label>
-          <input id="m-file" type="file" accept="audio/mpeg,audio/wav,audio/mp3,.mp3,.wav" className="hidden" onChange={onFile} />
-          {audioUrl && <audio controls src={audioUrl} className="mt-3 w-full" />}
+          <input id="m-file" type="file" accept="audio/mpeg,audio/wav,audio/mp3,.mp3,.wav" className="hidden" onChange={onAudio} />
+          {audioPreview && <audio controls src={audioPreview} className="mt-3 w-full" />}
         </div>
-        <Button type="submit" size="lg" className="w-full gap-2 glow">
-          <Send className="h-4 w-4" /> Publish Track
+        <div>
+          <Label htmlFor="m-cover">Cover image (optional, ≤5MB)</Label>
+          <label htmlFor="m-cover" className="mt-1.5 flex cursor-pointer items-center gap-3 rounded-lg border border-dashed border-border bg-secondary px-4 py-6 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary">
+            <ImageIcon className="h-5 w-5" />
+            <span>{coverFile?.name || "Click to choose a cover image"}</span>
+          </label>
+          <input id="m-cover" type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={onCover} />
+          {coverPreview && <img src={coverPreview} alt="cover preview" className="mt-3 h-32 w-full rounded-lg object-cover" />}
+        </div>
+        <Button type="submit" size="lg" className="glow w-full gap-2" disabled={busy}>
+          <Send className="h-4 w-4" /> {busy ? "Publishing..." : "Publish Track"}
         </Button>
       </form>
     </>

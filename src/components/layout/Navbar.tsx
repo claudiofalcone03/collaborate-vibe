@@ -27,10 +27,10 @@ const Navbar = () => {
 
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" className="text-muted-foreground" asChild>
-            <Link to="/dashboard">Sign In</Link>
+            <Link to="/auth">Sign In</Link>
           </Button>
           <Button size="sm" className="glow" asChild>
-            <Link to="/dashboard">Get Started</Link>
+            <Link to="/auth">Get Started</Link>
           </Button>
         </div>
       </div>
