@@ -1,17 +1,16 @@
 import { Heart } from "lucide-react";
 import { useLikes } from "@/hooks/useLikes";
 import { cn } from "@/lib/utils";
-import type { Content } from "@/data/mockData";
 
 interface Props {
-  content: Content;
+  contentId: string;
+  count: number;
   className?: string;
 }
 
-export const LikeButton = ({ content, className }: Props) => {
+export const LikeButton = ({ contentId, count, className }: Props) => {
   const { isLiked, toggleLike } = useLikes();
-  const liked = isLiked(content.id);
-  const count = content.likes + (liked ? 1 : 0);
+  const liked = isLiked(contentId);
 
   return (
     <button
@@ -19,7 +18,7 @@ export const LikeButton = ({ content, className }: Props) => {
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        toggleLike(content.id);
+        toggleLike(contentId);
       }}
       aria-pressed={liked}
       aria-label={liked ? "Unlike" : "Like"}
