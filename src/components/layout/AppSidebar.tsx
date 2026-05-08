@@ -1,14 +1,15 @@
-import { LayoutDashboard, PenSquare, User, MessageSquare, Zap } from "lucide-react";
+import { LayoutDashboard, PenSquare, User, MessageSquare, Zap, LogOut } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
-import { useLocation, Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent,
   SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar,
 } from "@/components/ui/sidebar";
+import { useAuth } from "@/hooks/useAuth";
 
 const items = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "Publish Idea", url: "/publish", icon: PenSquare },
+  { title: "Publish", url: "/publish", icon: PenSquare },
   { title: "Profile", url: "/profile", icon: User },
   { title: "Chat", url: "/chat", icon: MessageSquare },
 ];
@@ -16,7 +17,7 @@ const items = [
 export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
-  const location = useLocation();
+  const { profile, signOut } = useAuth();
 
   return (
     <Sidebar collapsible="icon" className="border-r border-border">
@@ -51,6 +52,18 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <div className="mt-auto border-t border-border p-2">
+        {!collapsed && profile && (
+          <div className="px-2 py-1 text-xs text-muted-foreground truncate">@{profile.username}</div>
+        )}
+        <button
+          onClick={signOut}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <LogOut className="h-4 w-4 shrink-0" />
+          {!collapsed && <span>Sign out</span>}
+        </button>
+      </div>
     </Sidebar>
   );
 }
