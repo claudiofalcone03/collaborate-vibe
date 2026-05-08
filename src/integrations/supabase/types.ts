@@ -14,7 +14,113 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      contents: {
+        Row: {
+          audio_url: string | null
+          content_type: Database["public"]["Enums"]["content_type"]
+          created_at: string
+          description: string | null
+          genre: string | null
+          id: string
+          image_url: string | null
+          likes_count: number
+          model: string | null
+          owner_id: string
+          skills: string[] | null
+          stage: string | null
+          title: string
+          vision: string | null
+        }
+        Insert: {
+          audio_url?: string | null
+          content_type: Database["public"]["Enums"]["content_type"]
+          created_at?: string
+          description?: string | null
+          genre?: string | null
+          id?: string
+          image_url?: string | null
+          likes_count?: number
+          model?: string | null
+          owner_id: string
+          skills?: string[] | null
+          stage?: string | null
+          title: string
+          vision?: string | null
+        }
+        Update: {
+          audio_url?: string | null
+          content_type?: Database["public"]["Enums"]["content_type"]
+          created_at?: string
+          description?: string | null
+          genre?: string | null
+          id?: string
+          image_url?: string | null
+          likes_count?: number
+          model?: string | null
+          owner_id?: string
+          skills?: string[] | null
+          stage?: string | null
+          title?: string
+          vision?: string | null
+        }
+        Relationships: []
+      }
+      likes: {
+        Row: {
+          content_id: string
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          content_id: string
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          content_id?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "likes_content_id_fkey"
+            columns: ["content_id"]
+            isOneToOne: false
+            referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          bio: string | null
+          created_at: string
+          id: string
+          profile_type: Database["public"]["Enums"]["profile_type"]
+          username: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          bio?: string | null
+          created_at?: string
+          id: string
+          profile_type?: Database["public"]["Enums"]["profile_type"]
+          username: string
+        }
+        Update: {
+          avatar_url?: string | null
+          bio?: string | null
+          created_at?: string
+          id?: string
+          profile_type?: Database["public"]["Enums"]["profile_type"]
+          username?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -23,7 +129,8 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      content_type: "music" | "project"
+      profile_type: "music_creator" | "project_creator" | "visitor"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +257,9 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      content_type: ["music", "project"],
+      profile_type: ["music_creator", "project_creator", "visitor"],
+    },
   },
 } as const
