@@ -1,131 +1,130 @@
-# VETRA — Music Creators + Likes & Ranking
 
-Extend the current Project-only platform to a generic **Content** model that supports both **Projects** and **Music**, with file uploads, a like system, and a ranked dashboard. Frontend-only MVP using mock data + localStorage (no backend yet).
+# VETRA MVP Backend — Lovable Cloud Integration
 
-## 1. Generic Content Model
+Convert VETRA from mock data to a real backend: email/password auth, Postgres tables, file storage for audio + cover images, real likes, dynamic dashboard. Mock data is dropped entirely.
 
-Refactor `src/data/mockData.ts` to introduce a shared base with a discriminator:
+## 1. Enable Lovable Cloud
+Provision Postgres, Auth, and Storage. No external accounts required.
 
-```ts
-type ContentType = "project" | "music";
+## 2. Database Schema (migrations)
 
-interface BaseContent {
-  id: string;
-  contentType: ContentType;
-  title: string;
-  description: string;
-  creator: string;
-  creatorAvatar: string;
-  createdAt: string;
-  likes: number;       // baseline likes from mock data
-}
+**`profiles`** (1-to-1 with `auth.users`, auto-created via trigger)
+- `id uuid PK` → `auth.users.id` (cascade)
+- `username text unique not null`
+- `bio text`
+- `avatar_url text`
+- `profile_type` enum: `music_creator | project_creator | visitor`
+- `created_at timestamptz default now()`
 
-interface ProjectContent extends BaseContent {
-  contentType: "project";
-  vision: string;
-  skills: string[];
-  stage: "Idea" | "MVP" | "Growth" | "Scaling";
-  model: "Equity" | "Paid" | "Volunteer";
-  applicants: number;
-}
+**`contents`**
+- `id uuid PK default gen_random_uuid()`
+- `owner_id uuid` → `auth.users.id` (cascade)
+- `content_type` enum: `music | project`
+- `title text not null`, `description text`
+- `audio_url text` (nullable), `image_url text` (nullable)
+- Project fields: `vision text`, `skills text[]`, `stage text`, `model text` (all nullable)
+- Music fields: `genre text` (nullable)
+- `likes_count int default 0`
+- `created_at timestamptz default now()`
 
-interface MusicContent extends BaseContent {
-  contentType: "music";
-  genre?: string;
-  audioUrl: string;     // object URL or remote URL
-  coverColor?: string;  // for visual variety
-  durationLabel?: string;
-}
+**`likes`**
+- `id uuid PK`, `user_id uuid`, `content_id uuid`
+- `created_at timestamptz default now()`
+- `unique(user_id, content_id)` ← enforces one-like-per-user
 
-type Content = ProjectContent | MusicContent;
+**Triggers**
+- `handle_new_user()` → insert profile row from signup metadata (username, profile_type)
+- `on_like_insert/delete` → increment/decrement `contents.likes_count`
+
+**RLS**
+- `profiles`: select public; update own.
+- `contents`: select public; insert/update/delete own (`auth.uid() = owner_id`).
+- `likes`: select public; insert/delete own.
+
+## 3. Storage Buckets
+- `audio` (public read) — mp3/wav, 20MB cap, mime check
+- `covers` (public read) — png/jpg/webp, 5MB cap
+
+RLS: authenticated users can upload to their own folder `{user_id}/...`; public read.
+
+## 4. Authentication
+Email/password only. Auto-confirm enabled (no email verification gate for MVP).
+
+**Pages**
+- `/auth` — combined Sign Up / Login tabs.
+  - Sign Up fields: email, password, username, **profile type** (Music Creator / Project Creator / Visitor).
+  - Login: email + password.
+- `useAuth` hook with `onAuthStateChange` listener set up before `getSession()`, exposing `{ user, profile, loading, signOut }`.
+- `<ProtectedRoute>` wrapper redirecting unauthenticated users from `/dashboard`, `/publish`, `/profile`, `/chat` to `/auth`.
+- Logout button in sidebar.
+
+## 5. Content Publishing
+Rewrite `Publish.tsx` to write to DB:
+- **Project form**: insert into `contents` with `content_type='project'`.
+- **Music form**: upload audio to `audio` bucket → upload optional cover to `covers` bucket → insert row with public URLs.
+- Client validation (zod): title 1–120 chars, description ≤2000, audio mime in `[audio/mpeg, audio/wav]`, ≤20MB.
+- Any authenticated user can publish either type.
+
+## 6. Dynamic Dashboard
+Replace `contentStore` mock store with React Query fetching from `contents` joined to `profiles` (creator info).
+- Tabs: **All / Music / Projects**.
+- Sort toggle: **Trending** (`likes_count desc`) / **Latest** (`created_at desc`).
+- Trending and Latest sections both visible on the page when "All" is active.
+- Real-time refresh: invalidate query on like / publish; optionally subscribe to Postgres changes for `contents`.
+
+## 7. Like System
+- `LikeButton` calls `supabase.from('likes').insert/delete`.
+- Unique constraint blocks duplicates server-side.
+- `likes_count` updated by trigger; UI uses optimistic update + query invalidation.
+- If unauthenticated → toast "Sign in to like" + redirect to `/auth`.
+- Replace `useLikes` localStorage hook with a query that loads the current user's liked content IDs.
+
+## 8. Audio Player
+Keep native `<audio controls>` for music cards (responsive, accessible). No redesign.
+
+## 9. Anti-Spam / Validation
+- DB unique constraint on likes.
+- RLS prevents acting on others' rows.
+- Zod validation on all forms.
+- File size + mime checks before upload.
+- Auth gate on publish + like.
+
+## 10. Cleanup
+- Delete `src/data/mockData.ts` content arrays and `src/data/contentStore.ts`.
+- Replace `currentUser` references with the real authenticated profile.
+- Profile page reads from `profiles` table for the logged-in user; reputation/contribution sections become "coming soon" placeholders (no fake data).
+- Chat page left as-is (out of scope, future).
+
+## Technical Approach
+
+**Files to create**
+```
+src/hooks/useAuth.tsx
+src/components/auth/ProtectedRoute.tsx
+src/pages/Auth.tsx
+src/lib/validation.ts                (zod schemas)
+src/hooks/useContents.ts             (react-query)
+src/hooks/useLikes.ts                (rewritten, db-backed)
+supabase/migrations/*.sql            (schema + triggers + RLS + buckets)
 ```
 
-Existing `projects` data is mapped to `ProjectContent`. Add ~6 mock `MusicContent` entries (Lo-fi, Synthwave, Hip-Hop, Ambient, Indie, Electronic) using public sample audio URLs (e.g. `https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3`).
+**Files to modify**
+```
+src/App.tsx                          (Auth route + ProtectedRoute wrappers)
+src/pages/Publish.tsx                (DB writes + storage uploads)
+src/pages/Dashboard.tsx              (react-query + trending/latest)
+src/pages/Profile.tsx                (real profile data)
+src/components/LikeButton.tsx        (DB-backed)
+src/components/content/MusicCard.tsx (use image_url)
+src/components/content/ProjectCard.tsx
+src/components/layout/AppSidebar.tsx (logout)
+```
 
-Profile (`User`) gains: `creatorTypes: ("project" | "music")[]` so a user can be one or both.
+**Files to remove**
+```
+src/data/contentStore.ts
+src/data/mockData.ts                 (keep only static lists: ALL_SKILLS, GENRES)
+```
 
-## 2. Like System (client-side)
-
-New `src/hooks/useLikes.ts` — manages a `Set<string>` of liked content IDs in `localStorage` (`vetra.likes`). Exposes:
-- `isLiked(id)`
-- `toggleLike(id)` → updates local set + bumps an in-memory `likeDeltas` map
-- `getLikeCount(content)` → `content.likes + (delta[id] ?? 0)`
-
-Rule enforcement: toggle is idempotent per user (one like max). No backend, so "user" = browser.
-
-New reusable `<LikeButton content={...} />` component (heart icon from lucide, filled when liked, shows count).
-
-## 3. Music Upload Flow
-
-Update `src/pages/Publish.tsx` to start with a **Content Type selector** (two large cards: Project / Music).
-
-- **Project branch**: existing form unchanged.
-- **Music branch**: new form with fields
-  - Title (required)
-  - Description (required)
-  - Genre (optional dropdown: Lo-fi, Hip-Hop, Electronic, Rock, Ambient, Other)
-  - Creator name (prefilled from `currentUser`)
-  - Audio file input (`accept="audio/mpeg,audio/wav"`)
-    - Validates type + size (≤20MB)
-    - Uses `URL.createObjectURL(file)` to get a local URL (frontend MVP)
-  - Inline `<audio controls>` preview after selection
-
-Submit pushes a new `MusicContent` into a shared in-memory store (`src/data/contentStore.ts`) so it appears in the dashboard during the session. Toast confirms publish.
-
-> Note for the user: for true persistence + cross-device playback we need Lovable Cloud + Supabase Storage. This step keeps things fully frontend; uploaded tracks live for the session only.
-
-## 4. Dashboard Ranking & Filters
-
-Refactor `src/pages/Dashboard.tsx`:
-
-- Header tab toggle: **All | Projects | Music** (segmented control).
-- New sort dropdown: **Top (likes)** (default) | **Recent**.
-- Combine `projects + music + userPublished` from `contentStore`, then filter by tab, then sort:
-  - Top: `likes desc, then createdAt desc`
-  - Recent: `createdAt desc`
-- Existing search box still matches title/description.
-- Skill/Stage filters only show when tab is `Projects` or `All` (hidden for Music-only view).
-- Add a small "🏆 Top Content" badge on the #1 ranked card.
-
-Replace `ProjectCard` with two cards driven by `contentType`:
-
-- `ProjectCard` (current visuals + `<LikeButton>` in footer next to Apply).
-- `MusicCard`: gradient cover block, title, creator, genre badge, compact `<audio controls>` player, `<LikeButton>`.
-
-Both share the same outer `glass` shell for visual consistency.
-
-## 5. Detail / Profile Touch-ups
-
-- `src/pages/Profile.tsx`: show a "Creator Type" chip row (Project Builder / Music Creator) and split contributions into "Projects" and "Tracks" sections if music exists.
-- No new detail-page routes required for MVP; the card itself contains the player.
-
-## 6. Files to Add / Edit
-
-**New**
-- `src/data/contentStore.ts` — in-memory + localStorage-backed store for session-published content
-- `src/hooks/useLikes.ts`
-- `src/components/LikeButton.tsx`
-- `src/components/content/MusicCard.tsx`
-- `src/components/content/ProjectCard.tsx` (extracted from Dashboard)
-- `src/components/publish/ContentTypePicker.tsx`
-- `src/components/publish/MusicForm.tsx`
-- `src/components/publish/ProjectForm.tsx` (extracted from current Publish page)
-
-**Edited**
-- `src/data/mockData.ts` — generic Content model + mock music tracks
-- `src/pages/Dashboard.tsx` — tabs, sort, unified content list
-- `src/pages/Publish.tsx` — type picker → branch into form
-- `src/pages/Profile.tsx` — creator type chips, optional tracks list
-
-## Technical Notes
-
-- No backend changes; all state is React + `localStorage`. Likes and uploaded music persist within the browser session/device only.
-- File uploads use `URL.createObjectURL` — fine for preview; not shareable.
-- Discriminated union (`contentType`) keeps the model future-proof: adding e.g. `"video"` later only requires a new variant + card component, no rewrites.
-- All new UI follows the existing dark + indigo + glassmorphism design system; fully responsive (cards already use the `sm:grid-cols-2 lg:grid-cols-3` layout).
-
-## Out of Scope (flag for later)
-
-- Real audio storage (needs Lovable Cloud + Supabase Storage bucket `tracks`)
-- Per-user authentication so likes are truly one-per-user server-side
-- Music detail page with waveform / comments
+## Out of Scope (modular hooks left for future)
+Chat, collaborations/applications, reputation scoring, crowdfunding. Tables and components are structured so these can be added without refactoring (e.g., generic `contents.content_type`, separate `likes` table pattern reusable for follows/applies).
