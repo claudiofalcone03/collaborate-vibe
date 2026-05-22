@@ -1,130 +1,79 @@
+## Collaboration Request System
 
-# VETRA MVP Backend — Lovable Cloud Integration
+Adds a structured collaboration flow between users built on top of existing `contents` and `profiles`. Includes a private 1:1 conversation backend so that accepting a request opens a real chat (replacing the current mock Chat page data).
 
-Convert VETRA from mock data to a real backend: email/password auth, Postgres tables, file storage for audio + cover images, real likes, dynamic dashboard. Mock data is dropped entirely.
+### 1. Database (migration)
 
-## 1. Enable Lovable Cloud
-Provision Postgres, Auth, and Storage. No external accounts required.
+**`collaboration_role` enum:** `producer | rapper | vocalist | mix_engineer | developer | designer | marketer | other`
 
-## 2. Database Schema (migrations)
+**`request_status` enum:** `pending | accepted | declined`
 
-**`profiles`** (1-to-1 with `auth.users`, auto-created via trigger)
-- `id uuid PK` → `auth.users.id` (cascade)
-- `username text unique not null`
-- `bio text`
-- `avatar_url text`
-- `profile_type` enum: `music_creator | project_creator | visitor`
-- `created_at timestamptz default now()`
+**`collaboration_requests`**
+- `id`, `sender_id`, `receiver_id`, `content_id` (FK → contents, cascade), `message` (text, 10–500 chars), `role` (collaboration_role), `portfolio_url` (text, nullable, validated), `status` (default `pending`), `created_at`
+- Unique partial index `(sender_id, content_id) WHERE status = 'pending'` → prevents duplicate pending requests
+- Indexes on `receiver_id, status` and `sender_id, created_at`
 
-**`contents`**
-- `id uuid PK default gen_random_uuid()`
-- `owner_id uuid` → `auth.users.id` (cascade)
-- `content_type` enum: `music | project`
-- `title text not null`, `description text`
-- `audio_url text` (nullable), `image_url text` (nullable)
-- Project fields: `vision text`, `skills text[]`, `stage text`, `model text` (all nullable)
-- Music fields: `genre text` (nullable)
-- `likes_count int default 0`
-- `created_at timestamptz default now()`
+**`conversations`** (private 1:1, optionally linked to a content)
+- `id`, `user_a`, `user_b` (stored sorted so `user_a < user_b`), `content_id` (nullable FK), `created_at`
+- Unique `(user_a, user_b, content_id)`
 
-**`likes`**
-- `id uuid PK`, `user_id uuid`, `content_id uuid`
-- `created_at timestamptz default now()`
-- `unique(user_id, content_id)` ← enforces one-like-per-user
-
-**Triggers**
-- `handle_new_user()` → insert profile row from signup metadata (username, profile_type)
-- `on_like_insert/delete` → increment/decrement `contents.likes_count`
+**`conversation_messages`**
+- `id`, `conversation_id` (FK cascade), `sender_id`, `body` (1–2000 chars), `created_at`
 
 **RLS**
-- `profiles`: select public; update own.
-- `contents`: select public; insert/update/delete own (`auth.uid() = owner_id`).
-- `likes`: select public; insert/delete own.
+- `collaboration_requests`: select if `auth.uid() IN (sender_id, receiver_id)`. Insert if `auth.uid() = sender_id` AND sender ≠ content owner AND no existing pending request to same content. Update (status only) if `auth.uid() = receiver_id`.
+- `conversations`: select/insert if `auth.uid() IN (user_a, user_b)`.
+- `conversation_messages`: select if user is participant of the conversation; insert if sender is participant.
 
-## 3. Storage Buckets
-- `audio` (public read) — mp3/wav, 20MB cap, mime check
-- `covers` (public read) — png/jpg/webp, 5MB cap
+**Anti-spam trigger** `enforce_request_limits()` BEFORE INSERT on `collaboration_requests`:
+- Rejects if sender has ≥ 5 requests created in the last 24h
+- Rejects if sender is the content's `owner_id`
+- Sets `receiver_id` from `contents.owner_id` server-side (ignores client value) to prevent spoofing
 
-RLS: authenticated users can upload to their own folder `{user_id}/...`; public read.
+**Accept trigger** `on_request_accepted()` AFTER UPDATE on `collaboration_requests`:
+- When status flips `pending → accepted`: upsert a `conversations` row for `(sender, receiver, content_id)` with sorted user ids. Idempotent.
 
-## 4. Authentication
-Email/password only. Auto-confirm enabled (no email verification gate for MVP).
+**Realtime:** `ALTER PUBLICATION supabase_realtime ADD TABLE conversation_messages, collaboration_requests;`
 
-**Pages**
-- `/auth` — combined Sign Up / Login tabs.
-  - Sign Up fields: email, password, username, **profile type** (Music Creator / Project Creator / Visitor).
-  - Login: email + password.
-- `useAuth` hook with `onAuthStateChange` listener set up before `getSession()`, exposing `{ user, profile, loading, signOut }`.
-- `<ProtectedRoute>` wrapper redirecting unauthenticated users from `/dashboard`, `/publish`, `/profile`, `/chat` to `/auth`.
-- Logout button in sidebar.
+### 2. UI components (new)
 
-## 5. Content Publishing
-Rewrite `Publish.tsx` to write to DB:
-- **Project form**: insert into `contents` with `content_type='project'`.
-- **Music form**: upload audio to `audio` bucket → upload optional cover to `covers` bucket → insert row with public URLs.
-- Client validation (zod): title 1–120 chars, description ≤2000, audio mime in `[audio/mpeg, audio/wav]`, ≤20MB.
-- Any authenticated user can publish either type.
+- `src/components/collab/RequestCollabButton.tsx` — button rendered on `ProjectCard` and `MusicCard`. Hidden when viewer is the owner. Unauthenticated click → toast + redirect to `/auth`.
+- `src/components/collab/RequestCollabDialog.tsx` — shadcn `Dialog` with form:
+  - `message` (Textarea, required, 10–500)
+  - `role` (Select from the enum, required)
+  - `portfolio_url` (Input, optional, zod `.url()`)
+  - Submit calls `supabase.from('collaboration_requests').insert(...)`. Surfaces server errors (duplicate, daily limit, owner-self) as readable toasts.
+- `src/components/collab/IncomingRequestsList.tsx` and `OutgoingRequestsList.tsx` — used on Profile page. Receiver sees Accept / Decline buttons; sender sees status badge. After Accept, show "Open chat" link to `/chat?c=<conversationId>`.
 
-## 6. Dynamic Dashboard
-Replace `contentStore` mock store with React Query fetching from `contents` joined to `profiles` (creator info).
-- Tabs: **All / Music / Projects**.
-- Sort toggle: **Trending** (`likes_count desc`) / **Latest** (`created_at desc`).
-- Trending and Latest sections both visible on the page when "All" is active.
-- Real-time refresh: invalidate query on like / publish; optionally subscribe to Postgres changes for `contents`.
+### 3. Pages
 
-## 7. Like System
-- `LikeButton` calls `supabase.from('likes').insert/delete`.
-- Unique constraint blocks duplicates server-side.
-- `likes_count` updated by trigger; UI uses optimistic update + query invalidation.
-- If unauthenticated → toast "Sign in to like" + redirect to `/auth`.
-- Replace `useLikes` localStorage hook with a query that loads the current user's liked content IDs.
+- **Profile.tsx** — add a "Collaboration Requests" section with two tabs (Incoming / Sent). Pulls via React Query joined to `profiles` for sender/receiver username and to `contents` for title.
+- **Chat.tsx** — replace mock channel/message data with real `conversations` + `conversation_messages`:
+  - Left list: conversations the user participates in, showing the other user's username + linked content title.
+  - Selecting one (or `?c=<id>` from URL) loads messages, supports sending via insert, and subscribes to realtime inserts.
+  - Empty state: "Accept a collaboration request to start chatting."
 
-## 8. Audio Player
-Keep native `<audio controls>` for music cards (responsive, accessible). No redesign.
+### 4. Validation (`src/lib/validation.ts`)
 
-## 9. Anti-Spam / Validation
-- DB unique constraint on likes.
-- RLS prevents acting on others' rows.
-- Zod validation on all forms.
-- File size + mime checks before upload.
-- Auth gate on publish + like.
+Add `collabRequestSchema` (zod): message 10–500, role enum, optional URL ≤ 300 chars with safe protocol (`https?:`).
 
-## 10. Cleanup
-- Delete `src/data/mockData.ts` content arrays and `src/data/contentStore.ts`.
-- Replace `currentUser` references with the real authenticated profile.
-- Profile page reads from `profiles` table for the logged-in user; reputation/contribution sections become "coming soon" placeholders (no fake data).
-- Chat page left as-is (out of scope, future).
+### 5. Files
 
-## Technical Approach
+**Create**
+- `supabase/migrations/<ts>_collaboration.sql`
+- `src/components/collab/RequestCollabButton.tsx`
+- `src/components/collab/RequestCollabDialog.tsx`
+- `src/components/collab/IncomingRequestsList.tsx`
+- `src/components/collab/OutgoingRequestsList.tsx`
+- `src/hooks/useCollabRequests.ts`
+- `src/hooks/useConversations.ts`
 
-**Files to create**
-```
-src/hooks/useAuth.tsx
-src/components/auth/ProtectedRoute.tsx
-src/pages/Auth.tsx
-src/lib/validation.ts                (zod schemas)
-src/hooks/useContents.ts             (react-query)
-src/hooks/useLikes.ts                (rewritten, db-backed)
-supabase/migrations/*.sql            (schema + triggers + RLS + buckets)
-```
+**Modify**
+- `src/components/content/MusicCard.tsx`, `ProjectCard.tsx` — add Request Collab button (hidden for owner)
+- `src/pages/Profile.tsx` — add Collaboration Requests section
+- `src/pages/Chat.tsx` — replace mock data with real conversations
+- `src/lib/validation.ts` — add schema
+- `src/data/mockData.ts` — remove `chatChannels` / `chatMessages` (unused after Chat refactor)
 
-**Files to modify**
-```
-src/App.tsx                          (Auth route + ProtectedRoute wrappers)
-src/pages/Publish.tsx                (DB writes + storage uploads)
-src/pages/Dashboard.tsx              (react-query + trending/latest)
-src/pages/Profile.tsx                (real profile data)
-src/components/LikeButton.tsx        (DB-backed)
-src/components/content/MusicCard.tsx (use image_url)
-src/components/content/ProjectCard.tsx
-src/components/layout/AppSidebar.tsx (logout)
-```
-
-**Files to remove**
-```
-src/data/contentStore.ts
-src/data/mockData.ts                 (keep only static lists: ALL_SKILLS, GENRES)
-```
-
-## Out of Scope (modular hooks left for future)
-Chat, collaborations/applications, reputation scoring, crowdfunding. Tables and components are structured so these can be added without refactoring (e.g., generic `contents.content_type`, separate `likes` table pattern reusable for follows/applies).
+### Out of scope
+Group chats, message read receipts, notifications, blocking, reputation effects of accepted requests.

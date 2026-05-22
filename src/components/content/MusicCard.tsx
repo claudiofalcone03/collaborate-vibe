@@ -1,5 +1,6 @@
 import { Music, Trophy } from "lucide-react";
 import { LikeButton } from "@/components/LikeButton";
+import { RequestCollabButton } from "@/components/collab/RequestCollabButton";
 import type { ContentRow } from "@/hooks/useContents";
 
 const initials = (s: string) => s.slice(0, 2).toUpperCase();
@@ -30,11 +31,14 @@ export const MusicCard = ({ track, isTop }: { track: ContentRow; isTop?: boolean
         <h3 className="mb-1 text-lg font-semibold text-foreground">{track.title}</h3>
         <p className="mb-3 flex-1 text-sm leading-relaxed text-muted-foreground">{track.description}</p>
         {track.audio_url && <audio controls preload="none" src={track.audio_url} className="mb-3 w-full" />}
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/20 text-xs font-medium text-primary">
-            {initials(creator)}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/20 text-xs font-medium text-primary">
+              {initials(creator)}
+            </div>
+            <span className="truncate text-xs text-muted-foreground">@{creator}</span>
           </div>
-          <span className="truncate text-xs text-muted-foreground">@{creator}</span>
+          <RequestCollabButton contentId={track.id} contentTitle={track.title} ownerId={track.owner_id} />
         </div>
       </div>
     </div>
