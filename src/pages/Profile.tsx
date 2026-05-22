@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
+import { CollaborationRequestsSection } from "@/components/collab/CollaborationRequestsSection";
 
 const profileTypeLabel: Record<string, string> = {
   music_creator: "Music Creator",
