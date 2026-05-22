@@ -163,6 +163,10 @@ const Profile = () => {
           </div>
         )}
       </div>
+
+      <div className="mt-6">
+        <CollaborationRequestsSection />
+      </div>
     </div>
   );
 };
