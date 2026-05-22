@@ -1,6 +1,7 @@
 import { Trophy } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { LikeButton } from "@/components/LikeButton";
+import { RequestCollabButton } from "@/components/collab/RequestCollabButton";
 import type { ContentRow } from "@/hooks/useContents";
 
 const stageColors: Record<string, string> = {
@@ -43,6 +44,9 @@ export const ProjectCard = ({ project, isTop }: { project: ContentRow; isTop?: b
           <span className="truncate text-xs text-muted-foreground">@{creator}</span>
         </div>
         <LikeButton contentId={project.id} count={project.likes_count} />
+      </div>
+      <div className="mt-3 flex justify-end">
+        <RequestCollabButton contentId={project.id} contentTitle={project.title} ownerId={project.owner_id} />
       </div>
     </div>
   );
