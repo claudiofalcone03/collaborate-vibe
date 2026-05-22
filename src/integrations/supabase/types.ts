@@ -14,6 +14,50 @@ export type Database = {
   }
   public: {
     Tables: {
+      collaboration_requests: {
+        Row: {
+          content_id: string
+          created_at: string
+          id: string
+          message: string
+          portfolio_url: string | null
+          receiver_id: string
+          role: Database["public"]["Enums"]["collaboration_role"]
+          sender_id: string
+          status: Database["public"]["Enums"]["request_status"]
+        }
+        Insert: {
+          content_id: string
+          created_at?: string
+          id?: string
+          message: string
+          portfolio_url?: string | null
+          receiver_id: string
+          role: Database["public"]["Enums"]["collaboration_role"]
+          sender_id: string
+          status?: Database["public"]["Enums"]["request_status"]
+        }
+        Update: {
+          content_id?: string
+          created_at?: string
+          id?: string
+          message?: string
+          portfolio_url?: string | null
+          receiver_id?: string
+          role?: Database["public"]["Enums"]["collaboration_role"]
+          sender_id?: string
+          status?: Database["public"]["Enums"]["request_status"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "collaboration_requests_content_id_fkey"
+            columns: ["content_id"]
+            isOneToOne: false
+            referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contents: {
         Row: {
           audio_url: string | null
@@ -64,6 +108,70 @@ export type Database = {
           vision?: string | null
         }
         Relationships: []
+      }
+      conversation_messages: {
+        Row: {
+          body: string
+          conversation_id: string
+          created_at: string
+          id: string
+          sender_id: string
+        }
+        Insert: {
+          body: string
+          conversation_id: string
+          created_at?: string
+          id?: string
+          sender_id: string
+        }
+        Update: {
+          body?: string
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          sender_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversation_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      conversations: {
+        Row: {
+          content_id: string | null
+          created_at: string
+          id: string
+          user_a: string
+          user_b: string
+        }
+        Insert: {
+          content_id?: string | null
+          created_at?: string
+          id?: string
+          user_a: string
+          user_b: string
+        }
+        Update: {
+          content_id?: string | null
+          created_at?: string
+          id?: string
+          user_a?: string
+          user_b?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversations_content_id_fkey"
+            columns: ["content_id"]
+            isOneToOne: false
+            referencedRelation: "contents"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       likes: {
         Row: {
@@ -126,11 +234,24 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      is_conversation_participant: {
+        Args: { _conv: string; _user: string }
+        Returns: boolean
+      }
     }
     Enums: {
+      collaboration_role:
+        | "producer"
+        | "rapper"
+        | "vocalist"
+        | "mix_engineer"
+        | "developer"
+        | "designer"
+        | "marketer"
+        | "other"
       content_type: "music" | "project"
       profile_type: "music_creator" | "project_creator" | "visitor"
+      request_status: "pending" | "accepted" | "declined"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -258,8 +379,19 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      collaboration_role: [
+        "producer",
+        "rapper",
+        "vocalist",
+        "mix_engineer",
+        "developer",
+        "designer",
+        "marketer",
+        "other",
+      ],
       content_type: ["music", "project"],
       profile_type: ["music_creator", "project_creator", "visitor"],
+      request_status: ["pending", "accepted", "declined"],
     },
   },
 } as const
