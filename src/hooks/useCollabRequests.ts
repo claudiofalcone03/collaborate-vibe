@@ -27,22 +27,11 @@ export const useIncomingRequests = (userId: string | undefined) =>
     queryFn: async (): Promise<CollabRequestRow[]> => {
       const { data, error } = await supabase
         .from("collaboration_requests")
-        .select(
-          "*, sender:profiles!collaboration_requests_sender_id_fkey(username), content:contents!collaboration_requests_content_id_fkey(title, content_type)"
-        )
+        .select("*")
         .eq("receiver_id", userId!)
         .order("created_at", { ascending: false });
-      // Foreign key embed names above may not exist; fall back to two queries if needed.
-      if (error) {
-        const fallback = await supabase
-          .from("collaboration_requests")
-          .select("*")
-          .eq("receiver_id", userId!)
-          .order("created_at", { ascending: false });
-        if (fallback.error) throw fallback.error;
-        return await enrich(fallback.data ?? []);
-      }
-      return (data ?? []) as unknown as CollabRequestRow[];
+      if (error) throw error;
+      return await enrich(data ?? [], "sender");
     },
   });
 
